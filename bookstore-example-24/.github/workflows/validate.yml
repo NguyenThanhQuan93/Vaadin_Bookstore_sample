@@ -1,0 +1,56 @@
+name: Verify
+on:
+  push:
+    branches: [v24]
+  workflow_dispatch:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-latest
+    permissions:
+      issues: read
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: browser-actions/setup-chrome@latest
+        with:
+          chrome-version: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18.11'
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: stCarolas/setup-maven@v5
+        with:
+          maven-version: '3.9.0'
+      - name: Set TB License
+        run: |
+          TBL=${{ secrets.TB_LICENSE }}
+          [ -z "$TBL" ] && echo "No TB license provided" && exit 1
+          mkdir -p ~/.vaadin/
+          echo '{"username":"'`echo $TBL | cut -d / -f1`'","proKey":"'`echo $TBL | cut -d / -f2`'"}' > ~/.vaadin/proKey
+        shell: bash
+      - name: Verify
+        run: |
+          mvn -B -V -ntp package -Pit,production \
+            -Dcom.vaadin.testbench.Parameters.headless=true -Dheadless \
+            -Dcom.vaadin.testbench.Parameters.testsInParallel=2
+        shell: bash
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action/composite@v1
+        with:
+          files: "**/target/*-reports/TEST*.xml"
+          check_run_annotations: all tests, skipped tests
+          check_run_annotations_branch: v24
+      - if: ${{always()}}
+        uses: actions/upload-artifact@v4
+        with:
+          name: files
+          path: |
+            **/error-screenshots
+          retention-days: 7
